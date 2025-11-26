@@ -6,8 +6,7 @@
 //                                                                         
 // purpose : Align those fucking '=' signs!!!!!!!!!!!                                                  
 //-------------------------------------------------------------------------
-#include <cmath>
-#include <cstdlib>
+#include <immintrin.h>
 #define WIN32_LEAN_AND_MEAN
 // Window's BS
 #include <windows.h>
@@ -22,6 +21,7 @@
 #include <cstddef>
 #include <winbase.h>
 #include <synchapi.h>
+#include <cstdlib>
 
 // STL stuff...
 #include <string>
@@ -63,7 +63,7 @@ typedef struct TextLine_t
     // stored as this "TextLine_t" structure, which shall hold the line in a processed form.
 
     std::vector<Token_t> m_vecTokens;
-    int32_t              m_iCaretIndex = 0;
+    int32_t              m_iCaretIndex = -1;
     bool                 m_bComment    = false;
 
 } TextLine_t;
@@ -110,15 +110,19 @@ int         SyncText_PaintWindow(HWND hwnd);
 void        SyncText_StoreClipBoardText();
 std::string SyncText_GetClipBoardText();
 bool        SyncText_SetClipBoardText(const std::string& szText);
+void        SyncText_DumpBufferToClipBoard(std::vector<TextLine_t>& vecBuffer);
 
 // alignment logic...
 bool        SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut);
 char        SyncText_VkToChar(int vk);
+bool        SyncText_IsCmdValid();
 void        SyncText_ClearCmd();
 void        SyncText_HandleKey(WPARAM wParam);
 void        SyncText_UpdateCaretPos(std::vector<TextLine_t>& vecBuffer, CaretMoveMode_t iCaretMode, const std::string& szCmd);
 void        SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, int iTokenIndex);
 void        SyncText_UdpateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, char symbol);
+void        SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer);
+std::string SyncText_ContructStringFromBuffer(std::vector<TextLine_t>& vecBuffer);
 
 // Util...
 template<typename T>
@@ -159,7 +163,20 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_KEYDOWN: 
             if(wParam == VK_RETURN)
             {
-                ShowWindow(hwnd, SW_HIDE);
+                if(SyncText_IsCmdValid() == true)
+                {
+                    SyncText_ApplyCmd(g_vecBuffer);
+                    SyncText_ClearCmd();
+
+                    InvalidateRect(hwnd, NULL, true);
+                    ShowWindow(hwnd, SW_SHOW);
+                    g_bResizeWindow = true; // since text moved, resize might be required.
+                }
+                else 
+                {
+                    SyncText_DumpBufferToClipBoard(g_vecBuffer);
+                    ShowWindow(hwnd, SW_HIDE);
+                }
             }
             else if(wParam == VK_ESCAPE)
             {
@@ -552,6 +569,15 @@ bool SyncText_SetClipBoardText(const std::string& szText)
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
+void SyncText_DumpBufferToClipBoard(std::vector<TextLine_t>& vecBuffer)
+{
+    std::string szOutput = SyncText_ContructStringFromBuffer(vecBuffer);
+    SyncText_SetClipBoardText(szOutput);
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
 bool SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut)
 {
     //std::vector<std::string> vecLines = {};
@@ -569,7 +595,7 @@ bool SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecB
 
             vecLines.push_back(szBuffer.substr(iLineStartIndex, iLineSize));
 
-            iLineStartIndex = SyncText_Clamp<size_t>(iCharIndex + 1LLU, 0LLU, iBufferSize - 1LLU);
+            iLineStartIndex  = SyncText_Clamp<size_t>(iCharIndex + 1LLU, 0LLU, iBufferSize - 1LLU);
         }
     }
 
@@ -726,6 +752,14 @@ char SyncText_VkToChar(int vk)
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
+bool SyncText_IsCmdValid()
+{
+    return g_iCaretMoveMode != CaretMoveMode_t::CaretMoveMode_None && g_szCmd.empty() == false;
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
 void SyncText_ClearCmd()
 {
     g_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_None;
@@ -783,7 +817,10 @@ void SyncText_UpdateCaretPos(std::vector<TextLine_t>& vecBuffer, CaretMoveMode_t
     
     if(iCaretMode == CaretMoveMode_t::CaretMoveMode_CountSymbol)
     {
+        // This atoi fn should handle all edge cases properly, so 
+        // this part should be good enough / safe enough maybe?
         int iTokenIndex = atoi(szCmd.c_str());
+
         SyncText_UpdateCaretPosCountToken(vecBuffer, iTokenIndex);
     }
     else if(iCaretMode == CaretMoveMode_t::CaretMoveMode_FindSymbol)
@@ -800,9 +837,9 @@ void SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, int i
     for(TextLine_t& line : vecBuffer)
     {
         int iTargetTokenIndex = line.m_iCaretIndex + iTokenIndex;
-        iTargetTokenIndex = SyncText_Clamp<int>(iTargetTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
+        iTargetTokenIndex     = SyncText_Clamp<int>(iTargetTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
 
-        line.m_iCaretIndex = line.m_vecTokens[iTargetTokenIndex].m_iAbsIndex;
+        line.m_iCaretIndex    = line.m_vecTokens[iTargetTokenIndex].m_iAbsIndex;
     }
 }
 
@@ -827,4 +864,90 @@ void SyncText_UdpateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, char 
                 line.m_iCaretIndex = token.m_iAbsIndex;
         }
     }
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
+{
+    int iTargetCaretPos = -1;
+
+
+    // Finding largets caret pos.
+    for(TextLine_t& line : vecBuffer)
+    {
+        if(line.m_iCaretIndex > iTargetCaretPos)
+            iTargetCaretPos = line.m_iCaretIndex;
+    }
+
+
+    // No target caret pos found?
+    if(iTargetCaretPos < 0)
+        return;
+
+    
+    // Modify all lines so that the caret is aligned in all lines.
+    for(TextLine_t& line : vecBuffer)
+    {
+        // Negative caret index means this line doesn't have the desired
+        // symbol that we want to align. Leave it alone.
+        if(line.m_iCaretIndex < 0)
+            continue;
+
+
+        int iOffset = -1;
+        for(Token_t& token : line.m_vecTokens)
+        {
+            // If this is the token where the caret is curret at, then calc. and store offset
+            // that we need to apply to all the remaining tokens in this line.
+            if(line.m_iCaretIndex == token.m_iAbsIndex && iOffset < 0)
+            {
+                iOffset = iTargetCaretPos - token.m_iAbsIndex;
+            }
+
+            if(iOffset <= 0)
+                continue;
+
+            token.m_iAbsIndex += iOffset;
+        }
+
+        // New caret pos.
+        line.m_iCaretIndex = iTargetCaretPos;
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+std::string SyncText_ContructStringFromBuffer(std::vector<TextLine_t>& vecBuffer)
+{
+    std::stringstream resultStream;
+    size_t nLines = vecBuffer.size();
+
+    for(size_t iLineIndex = 0LLU; iLineIndex < nLines; iLineIndex++)
+    {
+        size_t      iCharIndex = 0LLU;
+        TextLine_t& line       = vecBuffer[iLineIndex];
+
+        for(Token_t& token : line.m_vecTokens)
+        {
+            while(iCharIndex < token.m_iAbsIndex)
+            {
+                resultStream << ' ';
+                iCharIndex++;
+            }
+
+            resultStream << token.m_szToken;
+            iCharIndex += token.m_szToken.size();
+        }
+
+
+        // if not last line, add new line character.
+        if(iLineIndex < nLines - 1LLU)
+            resultStream << '\n';
+    }
+
+
+    return resultStream.str();
 }
