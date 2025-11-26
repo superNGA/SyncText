@@ -6,11 +6,9 @@
 //                                                                         
 // purpose : Align those fucking '=' signs!!!!!!!!!!!                                                  
 //-------------------------------------------------------------------------
-#include <unordered_map>
-#include <unordered_set>
 #define WIN32_LEAN_AND_MEAN
+// Window's BS
 #include <windows.h>
-#include <chrono>
 #include <cstdint>
 #include <windef.h>
 #include <handleapi.h>
@@ -18,15 +16,28 @@
 #include <winuser.h>
 #include <wingdi.h>
 #include <shellapi.h>
-#include <string>
 #include <sstream>
 #include <cstddef>
 #include <winbase.h>
 #include <synchapi.h>
+
+// STL stuff...
+#include <string>
 #include <vector>
+#include <unordered_set>
+#include <chrono>
 
 
 
+
+///////////////////////////////////////////////////////////////////////////
+enum CaretMoveMode_t
+{
+    CaretMoveMode_None = -1,
+    CaretMoveMode_FindSymbol,
+    CaretMoveMode_CountSymbol
+};
+///////////////////////////////////////////////////////////////////////////
 
 
 ///////////////////////////////////////////////////////////////////////////
