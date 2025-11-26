@@ -1,0 +1,1 @@
+clang-cl main.cpp /Fe:SyncText.exe /link /SUBSYSTEM:WINDOWS User32.lib Gdi32.lib Shell32.lib
