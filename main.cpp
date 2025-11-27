@@ -34,7 +34,6 @@ Function definition ( same order as decleration. ).
 #include <cstdint>
 #include <WinUser.h>
 #include <winuser.h>
-#include <wingdi.h> // Delete this shit
 
 // STL stuff...
 #include <vector>
@@ -78,7 +77,7 @@ typedef struct TextLine_t
 
     std::vector<Token_t> m_vecTokens;
     int32_t              m_iCaretTokenIndex = -1;
-    bool                 m_bComment    = false;
+    bool                 m_bComment         = false;
 
 } TextLine_t;
 ///////////////////////////////////////////////////////////////////////////
@@ -90,9 +89,9 @@ typedef struct UserCmd_t
     void Clear()
     {
         m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_None;
-        m_iMoveAmount = 1;
-        m_symbol = '\0';
-        m_bForward = true;
+        m_iMoveAmount    = 1;
+        m_symbol         = '\0';
+        m_bForward       = true;
     }
 
     bool IsValid()
@@ -108,9 +107,9 @@ typedef struct UserCmd_t
 
 
     CaretMoveMode_t m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_None;
-    int32_t m_iMoveAmount = 1;
-    char m_symbol = '\0';
-    bool m_bForward = true; // Move direction.
+    int32_t         m_iMoveAmount    = 1;
+    char            m_symbol         = '\0';
+    bool            m_bForward       = true; // Move direction.
 
 } UserCmd_t;
 ///////////////////////////////////////////////////////////////////////////
@@ -135,22 +134,23 @@ enum KeyBinds_t : char
     KeyBind_FindSymbolBackward  = 'F',
     KeyBind_CountTokensForward  = 'w',
     KeyBind_CountTokensBackward = 'b',
-    KeyBind_StickyComma         = ','
+    KeyBind_StickyComma         = 's'
 };
 ///////////////////////////////////////////////////////////////////////////
 
 
 
 
+// Test
 ///////////////////////////////////////////////////////////////////////////
-const COLORREF g_bgClr                 = RGB(25, 25, 25);
-const COLORREF g_fgClr                 = RGB(55, 55, 55);
-const COLORREF g_textClr               = RGB(255, 255, 255);
-const COLORREF g_caretClr              = RGB(176, 7, 15);
+const COLORREF g_bgClr = RGB(25, 25, 25);
+const COLORREF g_fgClr = RGB(55, 55, 55);
+const COLORREF g_textClr = RGB(255, 255, 255);
+const COLORREF g_caretClr = RGB(176, 7, 15);
                                        
-const int      g_iPaddingInPxl         = 10.0f;
-const int      g_iPaddingTextBoxInPxl  = 10.0f;
-const int      g_iDebugInfoGap         = 10.0f;
+const int g_iPaddingInPxl = 10.0f;
+const int g_iPaddingTextBoxInPxl  = 10.0f;
+const int g_iDebugInfoGap = 10.0f;
 ///////////////////////////////////////////////////////////////////////////
 
 
@@ -173,7 +173,6 @@ std::unordered_set<char> m_setDelimiterTokens           = {'"', '\'', ',', ';', 
 std::string              g_szComment                    = "//";
 std::string              g_szBuffer                     = "";
 std::vector<TextLine_t>  g_vecBuffer                    = {}; // Processed buffer.
-std::vector<std::string> vecLines; // Delete this, just for debugging.
 
 bool g_bResizeWindow = false;
 
@@ -371,7 +370,7 @@ bool SyncText_InitializeWindow(HINSTANCE hInstance)
     );
 
 
-    ShowWindow(hWindow, SW_SHOW);
+    ShowWindow(hWindow, SW_HIDE);
     UpdateWindow(hWindow);
 
 
@@ -420,7 +419,7 @@ int SyncText_PaintWindow(HWND hwnd)
             -16, 0, 0, 0, FW_NORMAL,                 
             FALSE, FALSE, FALSE, DEFAULT_CHARSET,
             OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN,   
+            CLEARTYPE_QUALITY, FIXED_PITCH | FF_MODERN,
             g_szFontName
         );
     }
@@ -441,7 +440,7 @@ int SyncText_PaintWindow(HWND hwnd)
 
 
     // so text draws properly.
-    SetBkMode   (hdc, TRANSPARENT);
+    SetBkMode(hdc, TRANSPARENT);
     SetTextColor(hdc, g_textClr);
 
 
@@ -462,7 +461,7 @@ int SyncText_PaintWindow(HWND hwnd)
         if(iLineWidth > iMaxLineWidth)
             iMaxLineWidth = iLineWidth; 
     }
-    vTextBoxSize.x += iMaxLineWidth * iCharWidth;
+    vTextBoxSize.x += iMaxLineWidth      * iCharWidth;
     vTextBoxSize.y += g_vecBuffer.size() * iLineHeight;
 
 
@@ -493,6 +492,7 @@ int SyncText_PaintWindow(HWND hwnd)
                 TextOutA(hdc, vCursorPos.x + (token.m_iAbsIndex * iCharWidth), vCursorPos.y, token.m_szToken.c_str(), token.m_szToken.size());
             }
 
+
             // Next line.
             vCursorPos.y += iLineHeight;
         }
@@ -503,10 +503,10 @@ int SyncText_PaintWindow(HWND hwnd)
     {
         Vec2 vCursorPos(g_iPaddingInPxl + g_iPaddingTextBoxInPxl, g_iPaddingInPxl + g_iPaddingTextBoxInPxl);
 
-        auto   hPen      = CreatePen(PS_SOLID, 1, g_caretClr);
-        auto   hBrush    = GetStockObject(NULL_BRUSH);
-        auto   hOldPen   = SelectObject(hdc, hPen);
-        auto   hOldBrush = SelectObject(hdc, hBrush);
+        auto hPen      = CreatePen(PS_SOLID, 1, g_caretClr);
+        auto hBrush    = GetStockObject(NULL_BRUSH);
+        auto hOldPen   = SelectObject(hdc, hPen);
+        auto hOldBrush = SelectObject(hdc, hBrush);
         for(size_t iLineIndex = 0; iLineIndex < g_vecBuffer.size(); iLineIndex++)
         {
             TextLine_t& line = g_vecBuffer[iLineIndex];
@@ -517,7 +517,8 @@ int SyncText_PaintWindow(HWND hwnd)
             int iCaretTokenIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
 
             int x = line.m_vecTokens[iCaretTokenIndex].m_iAbsIndex * iCharWidth;
-            int y = iLineIndex * iLineHeight;
+            int y = iLineIndex                                     * iLineHeight;
+            
             Rectangle(hdc, vCursorPos.x + x, vCursorPos.y + y, vCursorPos.x + x + iCharWidth, vCursorPos.y + y + iLineHeight);
         }
         SelectObject(hdc, hOldBrush);
@@ -723,7 +724,7 @@ void SyncText_DumpBufferToClipBoard(std::vector<TextLine_t>& vecBuffer)
 ///////////////////////////////////////////////////////////////////////////
 bool SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut)
 {
-    //std::vector<std::string> vecLines = {};
+    std::vector<std::string> vecLines = {};
     vecLines.clear();
 
     size_t iLineStartIndex = 0;
