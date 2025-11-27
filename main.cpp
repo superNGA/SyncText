@@ -4,38 +4,51 @@
 // by      : INSANE                                                        
 // created : 25/11/2025
 //                                                                         
-// purpose : Align those fucking '=' signs!!!!!!!!!!!                                                  
+// purpose : Align symbols across multiple lines.                                                   
 //-------------------------------------------------------------------------
-#include <immintrin.h>
+
+/*
+The implementation sits entierly in this single source file. 
+We use win32 for hanlding window n drawing n stuff.
+
+INDEX : 
+
+Includes.
+Structs & Enums
+KeyBinds. <- Might wanna change these?
+Global Varibles.
+Function declerations.
+Main Fn
+WinProc.
+Function definition ( same order as decleration. ).
+
+*/
+
+
+#include <cstddef>
 #define WIN32_LEAN_AND_MEAN
 // Window's BS
 #include <windows.h>
+#include <assert.h>
+#include <shellapi.h>
 #include <cstdint>
-#include <windef.h>
-#include <handleapi.h>
 #include <WinUser.h>
 #include <winuser.h>
-#include <wingdi.h>
-#include <shellapi.h>
-#include <sstream>
-#include <cstddef>
-#include <winbase.h>
-#include <synchapi.h>
-#include <cstdlib>
 
 // STL stuff...
-#include <string>
 #include <vector>
 #include <unordered_set>
 #include <chrono>
+#include <string>
+#include <sstream>
 
 
 
 
 ///////////////////////////////////////////////////////////////////////////
-enum CaretMoveMode_t
+enum CaretMoveMode_t : int32_t
 {
-    CaretMoveMode_None = -1,
+    CaretMoveMode_None       = -1,
     CaretMoveMode_FindSymbol = 0,
     CaretMoveMode_CountSymbol
 };
@@ -63,10 +76,55 @@ typedef struct TextLine_t
     // stored as this "TextLine_t" structure, which shall hold the line in a processed form.
 
     std::vector<Token_t> m_vecTokens;
-    int32_t              m_iCaretIndex = -1;
+    int32_t              m_iCaretTokenIndex = -1;
     bool                 m_bComment    = false;
 
 } TextLine_t;
+///////////////////////////////////////////////////////////////////////////
+
+
+///////////////////////////////////////////////////////////////////////////
+typedef struct UserCmd_t
+{
+    void Clear()
+    {
+        m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_None;
+        m_iMoveAmount = 1;
+        m_symbol = '\0';
+        m_bForward = true;
+    }
+
+    bool IsValid()
+    {
+        if(m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_FindSymbol && m_symbol != '\0')
+            return true;
+
+        if(m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_CountSymbol && m_iMoveAmount > 0)
+            return true;
+
+        return false;
+    }
+
+
+    CaretMoveMode_t m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_None;
+    int32_t m_iMoveAmount = 1;
+    char m_symbol = '\0';
+    bool m_bForward = true; // Move direction.
+
+} UserCmd_t;
+///////////////////////////////////////////////////////////////////////////
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+enum KeyBinds_t
+{
+    KeyBind_FindSymbolForward = 'f',
+    KeyBind_FindSymbolBackward = 'F',
+    KeyBind_CountTokensForward = 'w',
+    KeyBind_CountTokensBackward = 'b'
+};
 ///////////////////////////////////////////////////////////////////////////
 
 
@@ -78,10 +136,8 @@ const char*              g_szWindowName                 = "SyncText";
 const char*              g_szFontName                   = "JetBrains Mono";
 const int                g_iHotKeyModifier              = MOD_CONTROL; //MOD_ALT;
 const int                g_iHotKey                      = 'M'; // change according to preferences.
-const int                g_iKeyCaretMoveModeFindSymbol  = 'F';
-const int                g_iKeyCaretMoveModeCountSymbol = 'W';
-CaretMoveMode_t          g_iCaretMoveMode               = CaretMoveMode_t::CaretMoveMode_None;
-std::string              g_szCmd                        = ""; // This key defines how the caretMoveMode functions. ( stored in ASCII )
+std::string              g_szCmdBuffer                  = ""; // Cmd buffer.
+UserCmd_t                g_cmd;
 
 // Delimiters that are also tokens...
 std::unordered_set<char> m_setDelimiterTokens           = {'"', '\'', ',', ';', '+', '-', '=', '{', '}', '[', ']', '(', ')'};
@@ -103,25 +159,26 @@ constexpr int64_t SYNCTEXT_CLIPBOARD_UPDATE_CHECK_INTERVAL_IN_MS = 100LL; // Int
 ///////////////////////////////////////////////////////////////////////////
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-bool        SyncText_InitializeWindow(HINSTANCE hInstance);
-int         SyncText_PaintWindow(HWND hwnd);
+bool        SyncText_InitializeWindow        (HINSTANCE hInstance);
+int         SyncText_PaintWindow             (HWND hwnd);
 
 // Handling ClipBoard...
-void        SyncText_StoreClipBoardText();
-std::string SyncText_GetClipBoardText();
-bool        SyncText_SetClipBoardText(const std::string& szText);
-void        SyncText_DumpBufferToClipBoard(std::vector<TextLine_t>& vecBuffer);
+void        SyncText_StoreClipBoardText      ();
+std::string SyncText_GetClipBoardText        ();
+bool        SyncText_SetClipBoardText        (const std::string& szText);
+void        SyncText_DumpBufferToClipBoard   (std::vector<TextLine_t>& vecBuffer);
 
 // alignment logic...
-bool        SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut);
-char        SyncText_VkToChar(int vk);
-bool        SyncText_IsCmdValid();
-void        SyncText_ClearCmd();
-void        SyncText_HandleKey(WPARAM wParam);
-void        SyncText_UpdateCaretPos(std::vector<TextLine_t>& vecBuffer, CaretMoveMode_t iCaretMode, const std::string& szCmd);
-void        SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, int iTokenIndex);
-void        SyncText_UdpateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, char symbol);
-void        SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer);
+bool        SyncText_ProcessBuffer           (std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut);
+char        SyncText_VkToChar                (int vk);
+bool        SyncText_IsCmdValid              ();
+void        SyncText_ClearCmd                ();
+void        SyncText_CaptureKey              (WPARAM wParam, std::string& szCmdBuffer);
+bool        SyncText_ProcessCmdBuffer(std::string& szCmdBuffer, UserCmd_t& cmdOut, std::string& szNewCmd);
+void        SyncText_UpdateCaretPos          (std::vector<TextLine_t>& vecBuffer, std::string& szCmdBuffer, UserCmd_t& cmd);
+void        SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd);
+void        SyncText_UpdateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd);
+void        SyncText_ApplyCmd                (std::vector<TextLine_t>& vecBuffer);
 std::string SyncText_ContructStringFromBuffer(std::vector<TextLine_t>& vecBuffer);
 
 // Util...
@@ -163,10 +220,10 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         case WM_KEYDOWN: 
             if(wParam == VK_RETURN)
             {
-                if(SyncText_IsCmdValid() == true)
+                if(g_cmd.IsValid() == true)
                 {
                     SyncText_ApplyCmd(g_vecBuffer);
-                    SyncText_ClearCmd();
+                    g_cmd.Clear();
 
                     InvalidateRect(hwnd, NULL, true);
                     ShowWindow(hwnd, SW_SHOW);
@@ -180,19 +237,12 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             else if(wParam == VK_ESCAPE)
             {
-                if(g_iCaretMoveMode != CaretMoveMode_t::CaretMoveMode_None)
-                {
-                    SyncText_ClearCmd();
-                }
-                else 
-                {
-                    ShowWindow(hwnd, SW_HIDE);
-                }
+                ShowWindow(hwnd, SW_HIDE);
             }
             else 
             {
-                SyncText_HandleKey(wParam);
-                SyncText_UpdateCaretPos(g_vecBuffer, g_iCaretMoveMode, g_szCmd);
+                SyncText_CaptureKey(wParam, g_szCmdBuffer);
+                SyncText_UpdateCaretPos(g_vecBuffer, g_szCmdBuffer, g_cmd);
             }
             InvalidateRect(hwnd, NULL, TRUE);
 
@@ -386,10 +436,12 @@ int SyncText_PaintWindow(HWND hwnd)
     {
         TextLine_t& line = g_vecBuffer[iLineIndex];
 
-        if(line.m_iCaretIndex < 0)
+        if(line.m_iCaretTokenIndex < 0)
             continue;
 
-        int x = line.m_iCaretIndex * iCharWidth;
+        int iCaretTokenIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
+
+        int x = line.m_vecTokens[iCaretTokenIndex].m_iAbsIndex * iCharWidth;
         int y = iLineIndex * iLineHeight;
         Rectangle(hdc, x, y, x + iCharWidth, y + iLineHeight);
     }
@@ -402,23 +454,7 @@ int SyncText_PaintWindow(HWND hwnd)
     y += iLineHeight;
     {
         std::stringstream debugInfoStream;
-        debugInfoStream << "Mode : ";
-        switch (g_iCaretMoveMode) 
-        {
-        case CaretMoveMode_FindSymbol:
-            debugInfoStream << "Find Symbol";
-            break;
-
-        case CaretMoveMode_CountSymbol:
-            debugInfoStream << "Count Token";
-            break;
-
-        default:
-            debugInfoStream << "Invalid";
-            break;
-        }
-
-        debugInfoStream << ",  Modifier char : " << g_szCmd;
+        debugInfoStream << "Cmd : " << g_szCmdBuffer;
         TextOutA(hdc, 0, y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
         
 
@@ -472,9 +508,9 @@ void SyncText_StoreClipBoardText()
 
 
     // Copy...
-    keybd_event(VK_CONTROL, 0, 0, 0);
-    keybd_event('C', 0, 0, 0);
-    keybd_event('C', 0, KEYEVENTF_KEYUP, 0);
+    keybd_event(VK_CONTROL, 0, 0              , 0);
+    keybd_event('C'       , 0, 0              , 0);
+    keybd_event('C'       , 0, KEYEVENTF_KEYUP, 0);
     keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
 
 
@@ -708,8 +744,20 @@ char SyncText_VkToChar(int vk)
 {
     char c = '\0';
 
+    bool bCapsLock = GetKeyState(VK_CAPITAL) & 1;
+    bool bShift    = GetKeyState(VK_SHIFT)   & 0x8000;
+
+
     if (vk >= 'A' && vk <= 'Z') 
-        c = static_cast<char>(vk);  // base lowercase
+    {
+        c = static_cast<char>(vk); // Upper case be default.
+
+        if(bShift == false && bCapsLock == false)
+        {
+            c = (c - 'A') + 'a';
+        }
+    }
+
     
     if (vk >= '0' && vk <= '9')
         c = static_cast<char>(vk);
@@ -732,19 +780,29 @@ char SyncText_VkToChar(int vk)
 
 
     // Handling +shift key cases.
-    if(GetKeyState(VK_SHIFT) & 0x8000)
+    if(bShift == true)
     {
         switch (c) 
         {
         case '0':  c = ')'; break;
+        case '1':  c = '!'; break;
+        case '2':  c = '@'; break;
+        case '3':  c = '#'; break;
+        case '4':  c = '$'; break;
+        case '5':  c = '%'; break;
+        case '6':  c = '^'; break;
+        case '7':  c = '&'; break;
+        case '8':  c = '*'; break;
         case '9':  c = '('; break;
         case ']':  c = '}'; break;
         case '[':  c = '{'; break;
         case '\'': c = '"'; break;
+        case ';' : c = ':'; break;
         
         default: break;
         }
     }
+
 
     return c;
 }
@@ -754,7 +812,7 @@ char SyncText_VkToChar(int vk)
 ///////////////////////////////////////////////////////////////////////////
 bool SyncText_IsCmdValid()
 {
-    return g_iCaretMoveMode != CaretMoveMode_t::CaretMoveMode_None && g_szCmd.empty() == false;
+    return g_szCmdBuffer.empty() == false;
 }
 
 
@@ -762,106 +820,216 @@ bool SyncText_IsCmdValid()
 ///////////////////////////////////////////////////////////////////////////
 void SyncText_ClearCmd()
 {
-    g_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_None;
-    g_szCmd.clear();
+    g_szCmdBuffer.clear();
 }
 
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
-void SyncText_HandleKey(WPARAM wParam)
+void SyncText_CaptureKey(WPARAM wParam, std::string& szCmdBuffer)
 {
-    if(g_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_None)
+    char c = SyncText_VkToChar(wParam);
+    
+    if(c == '\0')
+        return;
+
+    szCmdBuffer.push_back(c);
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+bool SyncText_ProcessCmdBuffer(std::string& szCmdBuffer, UserCmd_t& cmdOut, std::string& szNewCmd)
+{
+    if(szCmdBuffer.empty() == true)
+        return false;
+
+
+    cmdOut.Clear();
+
+
+    // index of character that set the caret move mode in the UserCmd_t;
+    int iMoveModeKeyIndex = 0;
+    
+
+    // Find the first occuring move mode setting character.
+    size_t nCharacters = szCmdBuffer.size();
+    for(size_t iIndex = 0LLU; iIndex < nCharacters; iIndex++)
     {
-        if(wParam == g_iKeyCaretMoveModeFindSymbol)
+        char c = szCmdBuffer[iIndex];
+
+        switch (c) 
         {
-            g_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_FindSymbol;
+        case KeyBind_FindSymbolForward: 
+            cmdOut.m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_FindSymbol; 
+            cmdOut.m_bForward       = true; 
+            iMoveModeKeyIndex       = static_cast<int>(iIndex);
+            break;
+
+        case KeyBind_FindSymbolBackward:
+            cmdOut.m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_FindSymbol;
+            cmdOut.m_bForward       = false;
+            iMoveModeKeyIndex       = static_cast<int>(iIndex);
+            break;
+
+        case KeyBind_CountTokensForward:
+            cmdOut.m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_CountSymbol;
+            cmdOut.m_bForward       = true;
+            iMoveModeKeyIndex       = static_cast<int>(iIndex);
+            break;
+
+        case KeyBind_CountTokensBackward:
+            cmdOut.m_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_CountSymbol;
+            cmdOut.m_bForward       = false;
+            iMoveModeKeyIndex       = static_cast<int>(iIndex);
+            break;
+
+        default: break;
         }
-        else if(wParam == g_iKeyCaretMoveModeCountSymbol)
+
+
+        // If move mode is found then no need to bother with other move modes.
+        if(cmdOut.m_iCaretMoveMode != CaretMoveMode_t::CaretMoveMode_None)
+            break;
+    }
+
+
+    if(cmdOut.m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_None)
+        return false;
+
+
+
+    // Find Symbol or Move amount.
+    int iCmdEndIndex = iMoveModeKeyIndex; // final character of the buffer we need to clip to.
+    if(cmdOut.m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_FindSymbol)
+    {
+        int iSymbolIndex = iMoveModeKeyIndex + 1;
+        
+        if(iSymbolIndex < szCmdBuffer.size())
         {
-            g_iCaretMoveMode = CaretMoveMode_t::CaretMoveMode_CountSymbol;
+            cmdOut.m_symbol = szCmdBuffer[iSymbolIndex];
+            iCmdEndIndex    = iSymbolIndex;
         }
     }
-    else 
+    else if(cmdOut.m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_CountSymbol)
     {
-        char c = SyncText_VkToChar(wParam);
-        
-        // If caret move mode is findSymbol, the only one cmd key is allowed.
-        if(g_iCaretMoveMode == CaretMoveMode_FindSymbol)
+        int iMultiplier = 1;
+        int iMoveAmount = 1;
+        for(int i = iMoveModeKeyIndex - 1; i >= 0; i--)
         {
-            g_szCmd = c;
+            if(szCmdBuffer[i] > '9' || szCmdBuffer[i] < '0')
+                break;
+
+            int iNum = szCmdBuffer[i] - '0';
+            iMoveAmount += iNum * iMultiplier;
+            iMultiplier *= 10;
+        }
+
+        cmdOut.m_iMoveAmount = iMoveAmount;
+    }
+
+
+    // Did we catch any complete cmd? ( move mode + symbol or move amount )
+    if(cmdOut.m_symbol == '\0' && cmdOut.m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_FindSymbol)
+        return false;
+
+    
+    szNewCmd.clear();
+    if(iCmdEndIndex <= szCmdBuffer.size() - 1LLU)
+    {
+        szNewCmd = szCmdBuffer.substr(iCmdEndIndex + 1, szCmdBuffer.size() - iCmdEndIndex - 1);
+    }
+
+
+    return true;
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+void SyncText_UpdateCaretPos(std::vector<TextLine_t>& vecBuffer, std::string& szCmdBuffer, UserCmd_t& cmd)
+{
+    if(szCmdBuffer.empty() == true)
+        return;
+
+    
+    // Parse and construct user cmd.
+    std::string szNewCmdBuffer("");
+    if(SyncText_ProcessCmdBuffer(szCmdBuffer, cmd, szNewCmdBuffer) == false)
+        return;
+
+    szCmdBuffer = szNewCmdBuffer;
+
+    
+    if(cmd.m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_CountSymbol)
+    {
+        SyncText_UpdateCaretPosCountToken(vecBuffer, cmd);
+    }
+    else if(cmd.m_iCaretMoveMode == CaretMoveMode_t::CaretMoveMode_FindSymbol)
+    {
+        SyncText_UpdateCaretPosFindSymbol(vecBuffer, cmd);
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+void SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd)
+{
+    for(TextLine_t& line : vecBuffer)
+    {
+        if(line.m_vecTokens.size() == 0LLU)
+            continue;
+
+
+        line.m_iCaretTokenIndex += cmd.m_bForward == true ? cmd.m_iMoveAmount : cmd.m_iMoveAmount * -1;
+        line.m_iCaretTokenIndex  = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
+    }
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+void SyncText_UpdateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd)
+{
+    // Bad shit, no symbol found.
+    assert(cmd.m_symbol != '\0' && "Symbol is null!!!");
+    if(cmd.m_symbol == '\0')
+        return;
+
+
+
+    // NOTE : Don't use size_t here, m_iCaretTokenIndex can be negative and casting would cause underflow.
+    for(TextLine_t& line : vecBuffer)
+    {
+        if(cmd.m_bForward == true)
+        {
+            for(int iTokenIndex = line.m_iCaretTokenIndex + 1LLU; iTokenIndex < static_cast<int>(line.m_vecTokens.size()); iTokenIndex++)
+            {
+                if(line.m_vecTokens[iTokenIndex].m_szToken.empty() == true)
+                    continue;
+
+                if(line.m_vecTokens[iTokenIndex].m_szToken[0] == cmd.m_symbol)
+                {
+                    line.m_iCaretTokenIndex = iTokenIndex;
+                    break;
+                }
+            }
         }
         else 
         {
-            if(c >= '0' && c <= '9')
+            // Don't use 
+            for(int iTokenIndex = line.m_iCaretTokenIndex - 1; iTokenIndex >= 0; iTokenIndex--)
             {
-                g_szCmd.push_back(c);
+                if(line.m_vecTokens[iTokenIndex].m_szToken.empty() == true)
+                    continue;
+
+                if(line.m_vecTokens[iTokenIndex].m_szToken[0] == cmd.m_symbol)
+                {
+                    line.m_iCaretTokenIndex = iTokenIndex;
+                    break;
+                }
             }
-        }
-    }
-}
-
-
-///////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////
-void SyncText_UpdateCaretPos(std::vector<TextLine_t>& vecBuffer, CaretMoveMode_t iCaretMode, const std::string& szCmd)
-{
-    if(iCaretMode == CaretMoveMode_t::CaretMoveMode_None)
-        return;
-
-    
-    // We should have a non zero cmd.
-    if(szCmd.empty() == true)
-        return;
-
-    
-    if(iCaretMode == CaretMoveMode_t::CaretMoveMode_CountSymbol)
-    {
-        // This atoi fn should handle all edge cases properly, so 
-        // this part should be good enough / safe enough maybe?
-        int iTokenIndex = atoi(szCmd.c_str());
-
-        SyncText_UpdateCaretPosCountToken(vecBuffer, iTokenIndex);
-    }
-    else if(iCaretMode == CaretMoveMode_t::CaretMoveMode_FindSymbol)
-    {
-        SyncText_UdpateCaretPosFindSymbol(vecBuffer, szCmd[0]);
-    }
-}
-
-
-///////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////
-void SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, int iTokenIndex)
-{
-    for(TextLine_t& line : vecBuffer)
-    {
-        int iTargetTokenIndex = line.m_iCaretIndex + iTokenIndex;
-        iTargetTokenIndex     = SyncText_Clamp<int>(iTargetTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
-
-        line.m_iCaretIndex    = line.m_vecTokens[iTargetTokenIndex].m_iAbsIndex;
-    }
-}
-
-
-///////////////////////////////////////////////////////////////////////////
-///////////////////////////////////////////////////////////////////////////
-void SyncText_UdpateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, char symbol)
-{
-    for(TextLine_t& line : vecBuffer)
-    {
-        // Iterating all tokens & finding the first occuring token ( from current caret pos )
-        // with first character same as desired symbol.
-        for(const Token_t& token : line.m_vecTokens)
-        {
-            if(token.m_iAbsIndex < line.m_iCaretIndex)
-                continue;
-
-            if(token.m_szToken.empty() == true)
-                continue;
-
-            if(token.m_szToken[0] == symbol)
-                line.m_iCaretIndex = token.m_iAbsIndex;
         }
     }
 }
@@ -871,19 +1039,25 @@ void SyncText_UdpateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, char 
 ///////////////////////////////////////////////////////////////////////////
 void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
 {
-    int iTargetCaretPos = -1;
+    int iTargetCaretIndex = -1;
 
 
     // Finding largets caret pos.
     for(TextLine_t& line : vecBuffer)
     {
-        if(line.m_iCaretIndex > iTargetCaretPos)
-            iTargetCaretPos = line.m_iCaretIndex;
+        if(line.m_vecTokens.empty() == true)
+            continue;
+
+        int iCaretIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
+        if(line.m_vecTokens[iCaretIndex].m_iAbsIndex > iTargetCaretIndex)
+        {
+            iTargetCaretIndex = line.m_vecTokens[iCaretIndex].m_iAbsIndex;
+        }
     }
 
 
     // No target caret pos found?
-    if(iTargetCaretPos < 0)
+    if(iTargetCaretIndex < 0)
         return;
 
     
@@ -892,18 +1066,20 @@ void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
     {
         // Negative caret index means this line doesn't have the desired
         // symbol that we want to align. Leave it alone.
-        if(line.m_iCaretIndex < 0)
+        if(line.m_iCaretTokenIndex < 0)
             continue;
 
 
         int iOffset = -1;
-        for(Token_t& token : line.m_vecTokens)
+        for(size_t iTokenIndex = 0LLU; iTokenIndex < line.m_vecTokens.size(); iTokenIndex++)
         {
+            Token_t& token = line.m_vecTokens[iTokenIndex];
+
             // If this is the token where the caret is curret at, then calc. and store offset
             // that we need to apply to all the remaining tokens in this line.
-            if(line.m_iCaretIndex == token.m_iAbsIndex && iOffset < 0)
+            if(line.m_iCaretTokenIndex == iTokenIndex && iOffset < 0)
             {
-                iOffset = iTargetCaretPos - token.m_iAbsIndex;
+                iOffset = iTargetCaretIndex - token.m_iAbsIndex;
             }
 
             if(iOffset <= 0)
@@ -911,9 +1087,6 @@ void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
 
             token.m_iAbsIndex += iOffset;
         }
-
-        // New caret pos.
-        line.m_iCaretIndex = iTargetCaretPos;
     }
 }
 
