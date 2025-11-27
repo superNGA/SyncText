@@ -15,7 +15,8 @@ INDEX :
 
 Includes.
 Structs & Enums
-KeyBinds. <- Might wanna change these?
+KeyBinds         <- Might wanna change these?
+Colors & Padding <- Might wanna change these?
 Global Varibles.
 Function declerations.
 Main Fn
@@ -24,9 +25,8 @@ Function definition ( same order as decleration. ).
 
 */
 
-
-#include <cstddef>
 #define WIN32_LEAN_AND_MEAN
+
 // Window's BS
 #include <windows.h>
 #include <assert.h>
@@ -34,6 +34,7 @@ Function definition ( same order as decleration. ).
 #include <cstdint>
 #include <WinUser.h>
 #include <winuser.h>
+#include <wingdi.h> // Delete this shit
 
 // STL stuff...
 #include <vector>
@@ -115,16 +116,41 @@ typedef struct UserCmd_t
 ///////////////////////////////////////////////////////////////////////////
 
 
+///////////////////////////////////////////////////////////////////////////
+typedef struct Vec2
+{
+    Vec2(int _x, int _y) { x = _x; y = _y; }
+
+    int x, y;
+} Vec2;
+///////////////////////////////////////////////////////////////////////////
+
+
 
 
 ///////////////////////////////////////////////////////////////////////////
-enum KeyBinds_t
+enum KeyBinds_t : char
 {
-    KeyBind_FindSymbolForward = 'f',
-    KeyBind_FindSymbolBackward = 'F',
-    KeyBind_CountTokensForward = 'w',
-    KeyBind_CountTokensBackward = 'b'
+    KeyBind_FindSymbolForward   = 'f',
+    KeyBind_FindSymbolBackward  = 'F',
+    KeyBind_CountTokensForward  = 'w',
+    KeyBind_CountTokensBackward = 'b',
+    KeyBind_StickyComma         = ','
 };
+///////////////////////////////////////////////////////////////////////////
+
+
+
+
+///////////////////////////////////////////////////////////////////////////
+const COLORREF g_bgClr                 = RGB(25, 25, 25);
+const COLORREF g_fgClr                 = RGB(55, 55, 55);
+const COLORREF g_textClr               = RGB(255, 255, 255);
+const COLORREF g_caretClr              = RGB(176, 7, 15);
+                                       
+const int      g_iPaddingInPxl         = 10.0f;
+const int      g_iPaddingTextBoxInPxl  = 10.0f;
+const int      g_iDebugInfoGap         = 10.0f;
 ///////////////////////////////////////////////////////////////////////////
 
 
@@ -139,6 +165,9 @@ const int                g_iHotKey                      = 'M'; // change accordi
 std::string              g_szCmdBuffer                  = ""; // Cmd buffer.
 UserCmd_t                g_cmd;
 
+// Extra Features...
+bool g_bStickyComma = true;
+
 // Delimiters that are also tokens...
 std::unordered_set<char> m_setDelimiterTokens           = {'"', '\'', ',', ';', '+', '-', '=', '{', '}', '[', ']', '(', ')'};
 std::string              g_szComment                    = "//";
@@ -146,7 +175,6 @@ std::string              g_szBuffer                     = "";
 std::vector<TextLine_t>  g_vecBuffer                    = {}; // Processed buffer.
 std::vector<std::string> vecLines; // Delete this, just for debugging.
 
-// Window dimensions...
 bool g_bResizeWindow = false;
 
 // Max times we check if we have successfully copied selected text into the clipboard.
@@ -174,7 +202,7 @@ char        SyncText_VkToChar                (int vk);
 bool        SyncText_IsCmdValid              ();
 void        SyncText_ClearCmd                ();
 void        SyncText_CaptureKey              (WPARAM wParam, std::string& szCmdBuffer);
-bool        SyncText_ProcessCmdBuffer(std::string& szCmdBuffer, UserCmd_t& cmdOut, std::string& szNewCmd);
+bool        SyncText_ProcessCmdBuffer        (std::string& szCmdBuffer, UserCmd_t& cmdOut, std::string& szNewCmd);
 void        SyncText_UpdateCaretPos          (std::vector<TextLine_t>& vecBuffer, std::string& szCmdBuffer, UserCmd_t& cmd);
 void        SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd);
 void        SyncText_UpdateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd);
@@ -237,7 +265,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             }
             else if(wParam == VK_ESCAPE)
             {
-                ShowWindow(hwnd, SW_HIDE);
+                if(g_szCmdBuffer.empty() == false)
+                {
+                    g_szCmdBuffer.clear();
+                }
+                else
+                {
+                    ShowWindow(hwnd, SW_HIDE);
+                }
             }
             else 
             {
@@ -289,11 +324,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         case WM_USER + 2:
         {
-            int iWindowWidth  = static_cast<int>(wParam);
-            int iWindowHeight = static_cast<int>(lParam);
-            int iScreenWidth  = GetSystemMetrics(SM_CXSCREEN);
-            int iScreenHeight = GetSystemMetrics(SM_CYSCREEN);
-            MoveWindow(hwnd, (iScreenWidth - iWindowWidth) / 2, (iScreenHeight - iWindowHeight) / 2, iWindowWidth, iWindowHeight, true);
+            Vec2 vScreenSize(GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN));
+            Vec2 vWindowSize(static_cast<int>(wParam), static_cast<int>(lParam));
+
+            // Clamp window size to some minimum.
+            if(vWindowSize.x < 50) vWindowSize.x = 50;
+            if(vWindowSize.y < 50) vWindowSize.y = 50;
+
+            MoveWindow(hwnd, (vScreenSize.x - vWindowSize.x) / 2, (vScreenSize.y - vWindowSize.y) / 2, vWindowSize.x, vWindowSize.y, true);
             return 0;
         }
 
@@ -312,7 +350,8 @@ bool SyncText_InitializeWindow(HINSTANCE hInstance)
     wndClass.lpfnWndProc   = WndProc;
     wndClass.hInstance     = hInstance;
     wndClass.hCursor       = LoadCursor(NULL, IDC_ARROW);
-    wndClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    //wndClass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wndClass.hbrBackground = NULL;
     wndClass.lpszClassName = g_szWindowClass;
     wndClass.lpszMenuName  = NULL;
     wndClass.hIcon         = LoadIcon(NULL, IDI_APPLICATION);
@@ -386,101 +425,169 @@ int SyncText_PaintWindow(HWND hwnd)
         );
     }
 
-    auto oldObject = SelectObject(hdc, s_pFont);
+    // Set font.
+    auto oldFont = SelectObject(hdc, s_pFont);
 
-    // For dimensions of our font.
+    // Font dimensions...
     TEXTMETRIC tm; GetTextMetrics(hdc, &tm);
-
-    //  Since I am expecing a mono font, this should be good.
     int iCharWidth  = tm.tmAveCharWidth;
     int iLineHeight = tm.tmHeight + tm.tmExternalLeading;
 
 
-    // Drawing tokens...
-    int y = 0;
-    int iXMax = 0, iXMin = INFINITE;
-    for(TextLine_t& line : g_vecBuffer)
+    // BG Color
+    HBRUSH hBGClrBrush = CreateSolidBrush(g_bgClr); // dark blue, pick any color
+    FillRect(hdc, &ps.rcPaint, hBGClrBrush);
+    DeleteObject(hBGClrBrush);
+
+
+    // so text draws properly.
+    SetBkMode   (hdc, TRANSPARENT);
+    SetTextColor(hdc, g_textClr);
+
+
+    Vec2 vCursorPos(g_iPaddingInPxl, g_iPaddingInPxl);
+
+
+    // Calculating textbox width & height.
+    Vec2 vTextBoxSize(g_iPaddingTextBoxInPxl * 2, g_iPaddingTextBoxInPxl * 2);
+
+    int iMaxLineWidth = 0;
+    for(TextLine_t& line : g_vecBuffer) // finding thickest line.
     {
-        for(Token_t& token : line.m_vecTokens)
-        {
-            TextOutA(hdc, token.m_iAbsIndex * iCharWidth, y, token.m_szToken.c_str(), token.m_szToken.size());
-
-
-            // In case we need to resize our window, calculate the min & max.
-            if(g_bResizeWindow == true)
-            {
-                size_t iTokenMax = static_cast<size_t>(token.m_iAbsIndex) + token.m_szToken.size();
-                size_t iTokenMin = token.m_iAbsIndex;
-                
-                if(iTokenMin < iXMin)
-                {
-                    iXMin = iTokenMin;
-                }
-                else if(iTokenMax > iXMax)
-                {
-                    iXMax = iTokenMax;
-                }
-            }
-        }
-
-        y += iLineHeight;
-    }
-
-
-    // Drawing caret pos...
-    HPEN   hPen     = CreatePen(PS_SOLID, 1, RGB(0,0,0));
-    HBRUSH hNoBrush = (HBRUSH)GetStockObject(NULL_BRUSH);
-    auto hOldPen   = SelectObject(hdc, hPen);
-    auto hOldBrush = SelectObject(hdc, hNoBrush);
-    for(size_t iLineIndex = 0; iLineIndex < g_vecBuffer.size(); iLineIndex++)
-    {
-        TextLine_t& line = g_vecBuffer[iLineIndex];
-
-        if(line.m_iCaretTokenIndex < 0)
+        if(line.m_vecTokens.empty() == true)
             continue;
 
-        int iCaretTokenIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
-
-        int x = line.m_vecTokens[iCaretTokenIndex].m_iAbsIndex * iCharWidth;
-        int y = iLineIndex * iLineHeight;
-        Rectangle(hdc, x, y, x + iCharWidth, y + iLineHeight);
+        int iLineWidth = line.m_vecTokens.back().m_iAbsIndex + line.m_vecTokens.back().m_szToken.size();
+        
+        if(iLineWidth > iMaxLineWidth)
+            iMaxLineWidth = iLineWidth; 
     }
-    SelectObject(hdc, hOldBrush);
-    SelectObject(hdc, hOldPen);
-    DeleteObject(hPen);
+    vTextBoxSize.x += iMaxLineWidth * iCharWidth;
+    vTextBoxSize.y += g_vecBuffer.size() * iLineHeight;
 
 
-    // Debugging information...
-    y += iLineHeight;
+
+    // Padding constant...
+    {
+        auto hBrush    = CreateSolidBrush(g_fgClr);
+        auto hNoPen    = GetStockObject  (NULL_PEN);
+        auto hOldBrush = SelectObject    (hdc, hBrush);
+        auto hOldPen   = SelectObject    (hdc, hNoPen);
+
+        Rectangle(hdc, g_iPaddingInPxl, g_iPaddingInPxl, vTextBoxSize.x + g_iPaddingInPxl, vTextBoxSize.y + g_iPaddingInPxl);
+
+        SelectObject(hdc, hOldPen);
+        SelectObject(hdc, hOldBrush);
+        DeleteObject(hBrush);
+    }
+
+
+    // Drawing text... ( All tokens. )
+    {
+        Vec2 vCursorPos(g_iPaddingInPxl + g_iPaddingTextBoxInPxl, g_iPaddingInPxl + g_iPaddingTextBoxInPxl);
+
+        for(const TextLine_t& line : g_vecBuffer)
+        {
+            for(const Token_t& token : line.m_vecTokens)
+            {
+                TextOutA(hdc, vCursorPos.x + (token.m_iAbsIndex * iCharWidth), vCursorPos.y, token.m_szToken.c_str(), token.m_szToken.size());
+            }
+
+            // Next line.
+            vCursorPos.y += iLineHeight;
+        }
+    }
+
+
+    // Drawing carets... ( one per line. )
+    {
+        Vec2 vCursorPos(g_iPaddingInPxl + g_iPaddingTextBoxInPxl, g_iPaddingInPxl + g_iPaddingTextBoxInPxl);
+
+        auto   hPen      = CreatePen(PS_SOLID, 1, g_caretClr);
+        auto   hBrush    = GetStockObject(NULL_BRUSH);
+        auto   hOldPen   = SelectObject(hdc, hPen);
+        auto   hOldBrush = SelectObject(hdc, hBrush);
+        for(size_t iLineIndex = 0; iLineIndex < g_vecBuffer.size(); iLineIndex++)
+        {
+            TextLine_t& line = g_vecBuffer[iLineIndex];
+
+            if(line.m_iCaretTokenIndex < 0)
+                 continue;
+
+            int iCaretTokenIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
+
+            int x = line.m_vecTokens[iCaretTokenIndex].m_iAbsIndex * iCharWidth;
+            int y = iLineIndex * iLineHeight;
+            Rectangle(hdc, vCursorPos.x + x, vCursorPos.y + y, vCursorPos.x + x + iCharWidth, vCursorPos.y + y + iLineHeight);
+        }
+        SelectObject(hdc, hOldBrush);
+        SelectObject(hdc, hOldPen);
+        DeleteObject(hPen);
+    }
+
+
+
+    // Text box done, so add its size.
+    vCursorPos.y += vTextBoxSize.y;
+    
+
+    // Drawing other information.
+    vCursorPos.y += g_iDebugInfoGap;
     {
         std::stringstream debugInfoStream;
-        debugInfoStream << "Cmd : " << g_szCmdBuffer;
-        TextOutA(hdc, 0, y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
-        
-
-        y += iLineHeight;
-
-
+        debugInfoStream << "CMD : " << g_szCmdBuffer;
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
         debugInfoStream.str(""); debugInfoStream.clear();
-        debugInfoStream << "CharWidth : " << iCharWidth << ", LineHeight : "<< iLineHeight;
-        TextOutA(hdc, 0, y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+
+        vCursorPos.y += iLineHeight;
+
+        debugInfoStream << KeyBinds_t::KeyBind_FindSymbolForward << " : Find symbol in front";
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        vCursorPos.y += iLineHeight;
+
+        debugInfoStream << KeyBinds_t::KeyBind_FindSymbolBackward << " : Find symbol behind";
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        vCursorPos.y += iLineHeight;
+
+        debugInfoStream << KeyBinds_t::KeyBind_CountTokensForward << " : Move to n-th symbol in front";
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        vCursorPos.y += iLineHeight;
+
+        debugInfoStream << KeyBinds_t::KeyBind_CountTokensBackward << " : Move to n-th symbol behind";
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        vCursorPos.y += iLineHeight;
+
+        SetTextColor(hdc, g_bStickyComma == true ? RGB(0, 255, 0) : RGB(255, 0, 0));
+
+        debugInfoStream << "Sticky Comma : " << (g_bStickyComma == true ? "[ Enabled ]" : "[ Disabled ]");
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        SetTextColor(hdc, g_textClr);
+
+        vCursorPos.y += iLineHeight;
     }
-    y += iLineHeight;
+
+    vCursorPos.y += g_iPaddingInPxl;
 
 
     // Resize window if required...
     if(g_bResizeWindow == true)
     {
-        int iWindowHeight = y;
-        int iWindowWidth  = iXMax * iCharWidth;
-        PostMessage(hwnd, WM_USER + 2, iWindowWidth, iWindowHeight);
-
+        PostMessage(hwnd, WM_USER + 2, vTextBoxSize.x + (2 * g_iPaddingInPxl), vCursorPos.y);
         g_bResizeWindow = false;
     }
 
 
-    // Restore old font.
-    SelectObject(hdc, oldObject);
+    SelectObject(hdc, oldFont);
     
     EndPaint(hwnd, &ps);
     return 0;
@@ -508,9 +615,9 @@ void SyncText_StoreClipBoardText()
 
 
     // Copy...
-    keybd_event(VK_CONTROL, 0, 0              , 0);
-    keybd_event('C'       , 0, 0              , 0);
-    keybd_event('C'       , 0, KEYEVENTF_KEYUP, 0);
+    keybd_event(VK_CONTROL, 0,               0, 0);
+    keybd_event(       'C', 0,               0, 0);
+    keybd_event(       'C', 0, KEYEVENTF_KEYUP, 0);
     keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
 
 
@@ -798,6 +905,9 @@ char SyncText_VkToChar(int vk)
         case '[':  c = '{'; break;
         case '\'': c = '"'; break;
         case ';' : c = ':'; break;
+        case '.':  c = '>'; break;
+        case ',':  c = '<'; break;
+        case '/':  c = '?'; break;
         
         default: break;
         }
@@ -832,6 +942,9 @@ void SyncText_CaptureKey(WPARAM wParam, std::string& szCmdBuffer)
     
     if(c == '\0')
         return;
+
+    if(c == KeyBind_StickyComma)
+        g_bStickyComma = !g_bStickyComma;
 
     szCmdBuffer.push_back(c);
 }
@@ -1080,6 +1193,36 @@ void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
             if(line.m_iCaretTokenIndex == iTokenIndex && iOffset < 0)
             {
                 iOffset = iTargetCaretIndex - token.m_iAbsIndex;
+
+                // If "sticky comma" is enabled then pull along the one or 3 characters before it.
+                // 3 in case when the shit before this comma is a string in double or single quotes.
+                if(token.m_szToken[0] == ',' && g_bStickyComma == true)
+                {
+                    if(iTokenIndex > 0)
+                    {
+                        int iStickyTokenIndex = iTokenIndex - 1;
+
+                        // We will pull the first token regardless.
+                        line.m_vecTokens[iStickyTokenIndex].m_iAbsIndex += iOffset;
+
+                        char c = line.m_vecTokens[iStickyTokenIndex].m_szToken[0];
+
+                        if(c == '\'' || c == '"')
+                        {
+                            while(iStickyTokenIndex >= 0)
+                            {
+                                // we did the first preceding token already, go to second preceding token.
+                                iStickyTokenIndex--;
+                                
+                                line.m_vecTokens[iStickyTokenIndex].m_iAbsIndex += iOffset;
+
+                                char s = line.m_vecTokens[iStickyTokenIndex].m_szToken[0];
+                                if(s == c)
+                                    break;
+                            }
+                        }
+                    }
+                }
             }
 
             if(iOffset <= 0)
