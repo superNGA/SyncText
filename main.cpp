@@ -149,7 +149,6 @@ enum KeyBinds_t : char
 
 
 
-// Test
 ///////////////////////////////////////////////////////////////////////////
 const COLORREF g_bgClr                 = RGB( 25,  25, 25);
 const COLORREF g_fgClr                 = RGB( 55,  55, 55);
