@@ -25,6 +25,7 @@ Function definition ( same order as decleration. ).
 
 */
 
+#include <cstddef>
 #define WIN32_LEAN_AND_MEAN
 
 // Window's BS
@@ -74,6 +75,11 @@ typedef struct TextLine_t
 {
     // Our text buffer will be split at each newline character and each line will be 
     // stored as this "TextLine_t" structure, which shall hold the line in a processed form.
+
+    inline void Clear()
+    {
+        m_vecTokens.clear(); m_iCaretTokenIndex = -1; m_bComment = false;
+    }
 
     std::vector<Token_t> m_vecTokens;
     int32_t              m_iCaretTokenIndex = -1;
@@ -134,7 +140,9 @@ enum KeyBinds_t : char
     KeyBind_FindSymbolBackward  = 'F',
     KeyBind_CountTokensForward  = 'w',
     KeyBind_CountTokensBackward = 'b',
-    KeyBind_StickyComma         = 's'
+    KeyBind_StickyComma         = 's',
+    KeyBind_AlignComments       = 'c',
+    KeyBind_DrawHelpInfo        = 'h'
 };
 ///////////////////////////////////////////////////////////////////////////
 
@@ -143,14 +151,14 @@ enum KeyBinds_t : char
 
 // Test
 ///////////////////////////////////////////////////////////////////////////
-const COLORREF g_bgClr = RGB(25, 25, 25);
-const COLORREF g_fgClr = RGB(55, 55, 55);
-const COLORREF g_textClr = RGB(255, 255, 255);
-const COLORREF g_caretClr = RGB(176, 7, 15);
-                                       
-const int g_iPaddingInPxl = 10.0f;
-const int g_iPaddingTextBoxInPxl  = 10.0f;
-const int g_iDebugInfoGap = 10.0f;
+const COLORREF g_bgClr                 = RGB( 25,  25, 25);
+const COLORREF g_fgClr                 = RGB( 55,  55, 55);
+const COLORREF g_textClr               = RGB(255, 255, 255);
+const COLORREF g_caretClr              = RGB(176,   7, 15);
+
+const int      g_iPaddingInPxl         = 10.0f;
+const int      g_iPaddingTextBoxInPxl  = 10.0f;
+const int      g_iDebugInfoGap         = 10.0f;
 ///////////////////////////////////////////////////////////////////////////
 
 
@@ -166,10 +174,12 @@ std::string              g_szCmdBuffer                  = ""; // Cmd buffer.
 UserCmd_t                g_cmd;
 
 // Extra Features...
-bool g_bStickyComma = true;
+bool g_bStickyComma   = true;
+bool g_bAlignComments = false;
+bool g_bDrawHelpInfo  = true;
 
 // Delimiters that are also tokens...
-std::unordered_set<char> m_setDelimiterTokens           = {'"', '\'', ',', ';', '+', '-', '=', '{', '}', '[', ']', '(', ')'};
+std::unordered_set<char> m_setDelimiterTokens           = {'"', '\'', ',', ';', '+', '-', '=', '{', '}', '[', ']', '(', ')', '.'};
 std::string              g_szComment                    = "//";
 std::string              g_szBuffer                     = "";
 std::vector<TextLine_t>  g_vecBuffer                    = {}; // Processed buffer.
@@ -196,7 +206,7 @@ bool        SyncText_SetClipBoardText        (const std::string& szText);
 void        SyncText_DumpBufferToClipBoard   (std::vector<TextLine_t>& vecBuffer);
 
 // alignment logic...
-bool        SyncText_ProcessBuffer           (std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut);
+bool        SyncText_ProcessBufferV2         (std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut);
 char        SyncText_VkToChar                (int vk);
 bool        SyncText_IsCmdValid              ();
 void        SyncText_ClearCmd                ();
@@ -207,6 +217,7 @@ void        SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer
 void        SyncText_UpdateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, const UserCmd_t& cmd);
 void        SyncText_ApplyCmd                (std::vector<TextLine_t>& vecBuffer);
 std::string SyncText_ContructStringFromBuffer(std::vector<TextLine_t>& vecBuffer);
+bool        SyncText_IsLineComment           (TextLine_t& line, const std::string& szComment);
 
 // Util...
 template<typename T>
@@ -514,6 +525,9 @@ int SyncText_PaintWindow(HWND hwnd)
             if(line.m_iCaretTokenIndex < 0)
                  continue;
 
+            if(line.m_vecTokens.empty() == true)
+                continue;
+
             int iCaretTokenIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
 
             int x = line.m_vecTokens[iCaretTokenIndex].m_iAbsIndex * iCharWidth;
@@ -533,8 +547,10 @@ int SyncText_PaintWindow(HWND hwnd)
     
 
     // Drawing other information.
-    vCursorPos.y += g_iDebugInfoGap;
+    if(g_bDrawHelpInfo == true)
     {
+        vCursorPos.y += g_iDebugInfoGap;
+
         std::stringstream debugInfoStream;
         debugInfoStream << "CMD : " << g_szCmdBuffer;
         TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
@@ -568,7 +584,17 @@ int SyncText_PaintWindow(HWND hwnd)
 
         SetTextColor(hdc, g_bStickyComma == true ? RGB(0, 255, 0) : RGB(255, 0, 0));
 
-        debugInfoStream << "Sticky Comma : " << (g_bStickyComma == true ? "[ Enabled ]" : "[ Disabled ]");
+        debugInfoStream << "Sticky Comma   : " << (g_bStickyComma == true ? "[ Enabled ]" : "[ Disabled ]");
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        SetTextColor(hdc, g_textClr);
+
+        vCursorPos.y += iLineHeight;
+
+        SetTextColor(hdc, g_bAlignComments == true ? RGB(0, 255, 0) : RGB(255, 0, 0));
+
+        debugInfoStream << "Align Comments : " << (g_bAlignComments == true ? "[ Enabled ]" : "[ Disabled ]");
         TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
         debugInfoStream.str(""); debugInfoStream.clear();
 
@@ -649,7 +675,7 @@ void SyncText_StoreClipBoardText()
 
 
     // Chop up the std::string into tokens...
-    SyncText_ProcessBuffer(g_szBuffer, g_vecBuffer);
+    SyncText_ProcessBufferV2(g_szBuffer, g_vecBuffer);
 
 
     // Restore clipboard so prevent inconvinence.
@@ -722,125 +748,80 @@ void SyncText_DumpBufferToClipBoard(std::vector<TextLine_t>& vecBuffer)
 
 ///////////////////////////////////////////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
-bool SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut)
+bool SyncText_ProcessBufferV2(std::string& szBuffer, std::vector<TextLine_t>& vecBufferOut)
 {
-    std::vector<std::string> vecLines = {};
-    vecLines.clear();
-
-    size_t iLineStartIndex = 0;
-    size_t iBufferSize     = szBuffer.size();
-    for(size_t iCharIndex = 0; iCharIndex < iBufferSize; iCharIndex++)
-    {
-        char c = szBuffer[iCharIndex];
-
-        if(c == '\n' || c == '\0')
-        {
-            size_t iLineSize = SyncText_Clamp<size_t>(iCharIndex - iLineStartIndex + 1LLU, 0LLU, iBufferSize - iLineStartIndex + 1LLU);
-
-            vecLines.push_back(szBuffer.substr(iLineStartIndex, iLineSize));
-
-            iLineStartIndex  = SyncText_Clamp<size_t>(iCharIndex + 1LLU, 0LLU, iBufferSize - 1LLU);
-        }
-    }
-
-
-    // Now we iterate each line and split it into tokens...
     vecBufferOut.clear();
-    for(std::string& szLine : vecLines)
+
+    if(szBuffer.empty() == true)
+        return false;
+
+
+    // Fuck you microsoft!
+    szBuffer.erase(std::remove(szBuffer.begin(), szBuffer.end(), '\r'), szBuffer.end());
+    
+
+    // Temp line object. Will be reused.
+    TextLine_t line; line.Clear();
+
+    
+    size_t iLineStartIndex = 0LLU;
+    size_t iBufferSize     = szBuffer.size();
+    for(size_t iIndex = 0; iIndex <= iBufferSize; iIndex++)
     {
-        if(szLine.empty() == true)
+        char c = szBuffer[iIndex];
+
+        if(c == ' ')
             continue;
 
-
-        TextLine_t line;
-
-        // Check if this line is a comment
-        if(szLine.size() >= g_szComment.size())
+        
+        for(size_t iTokenIndex = iIndex; iTokenIndex < iBufferSize; iTokenIndex++)
         {
-            bool bComment = true;
-            for(int i = 0; i < g_szComment.size(); i++)
+            char curChar  = szBuffer[iTokenIndex];
+            char nextChar = szBuffer[iTokenIndex + 1LLU];
+
+
+            // Cur char is delimiter.
+            if(m_setDelimiterTokens.count(curChar) > 0LLU)
             {
-                if(szLine[i] != g_szComment[i])
-                    bComment = false;   
-            }
+                // NOTE : delimiters are expected to be single character.
+                Token_t token; 
+                token.m_szToken   = curChar; //szBuffer.substr(iTokenIndex, iTokenIndex - iIndex + 1LLU);
+                token.m_iAbsIndex = iIndex - iLineStartIndex;
+                line.m_vecTokens.push_back(token);
 
-            line.m_bComment = bComment;
-        }
-
-
-        size_t iTokenStart = 0LLU;
-        size_t iLineSize   = szLine.size();
-        for(size_t iIndex = 0; iIndex < iLineSize; iIndex++)
-        {
-            char c = szLine[iIndex];
-            
-            // a line should not have a newline character, cause we 
-            // have already splitted the line at \n characters.
-            if(c == '\n' || c == '\0')
-            {
-                // if token start is pointing at a non-delimiter token character, then we
-                // will need to manually include that character into the list cause no 
-                // delimiter will occur now.
-                if(szLine[iTokenStart] != ' ' && m_setDelimiterTokens.count(szLine[iTokenStart]) == 0LLU)
-                {
-                    // there should be alteast 1 character between line end & token start index.
-                    if(iTokenStart < iIndex)
-                    {
-                        Token_t token;
-                        token.m_szToken   = szLine.substr(iTokenStart, iIndex - iTokenStart);
-                        token.m_iAbsIndex = iTokenStart;
-                        line.m_vecTokens.push_back(token);
-                    }
-                }
+                iIndex            = iTokenIndex;
 
                 break;
             }
-
-
-            if(m_setDelimiterTokens.count(c) > 0LLU)
+            // Line ended?
+            else if(curChar == '\n' || curChar == '\0')
             {
-                // If the character before this character ( which in this case is a delimiter )
-                // is also a delimiter, then we don't need to add it. assuming that it was already
-                // added when it appeared as current character 'c'.
-                if(iTokenStart < iIndex && m_setDelimiterTokens.count(szLine[iTokenStart]) == 0LLU)
-                {
-                    Token_t token;
-                    token.m_szToken   = szLine.substr(iTokenStart, iIndex - iTokenStart);
-                    token.m_iAbsIndex = iTokenStart;
-                    line.m_vecTokens.push_back(token);
-                }
+                iLineStartIndex = iTokenIndex + 1LLU;
+                line.m_bComment = SyncText_IsLineComment(line, g_szComment);
 
+                vecBufferOut.push_back(line);
+                line.Clear();
 
-                // Push in this delimiter token as well.
+                break;
+            }
+            // Next char is a delimiters.
+            else if(nextChar == ' ' || m_setDelimiterTokens.count(nextChar) > 0LLU || nextChar == '\n' || nextChar == '\0')
+            {
                 Token_t token;
-                token.m_szToken   = c;
-                token.m_iAbsIndex = iIndex;
+                token.m_szToken   = szBuffer.substr(iIndex, iTokenIndex - iIndex + 1LLU);
+                token.m_iAbsIndex = iIndex - iLineStartIndex;
                 line.m_vecTokens.push_back(token);
 
+                iIndex            = iTokenIndex;
 
-                // Now token start represents the next character, which means
-                // the current character when we get to next iteration. ( assuming we get in same branch. )
-                iTokenStart = iIndex + 1LLU;
+                break;
             }
-            else if(c == ' ')
-            {
-                if(iTokenStart < iIndex)
-                {
-                    Token_t token;
-                    token.m_szToken   = szLine.substr(iTokenStart, iIndex - iTokenStart);
-                    token.m_iAbsIndex = iTokenStart;
-                    line.m_vecTokens.push_back(token);
-                }
+        }
 
-                // Now token start represents the next character, which means
-                // the current character when we get to next iteration. ( assuming we get in same branch. )
-                iTokenStart = iIndex + 1LLU;
-            }
-        }        
 
-        vecBufferOut.push_back(line);
+        if(c == '\0')
+            break;
     }
-
 
     return true;
 }
@@ -850,7 +831,7 @@ bool SyncText_ProcessBuffer(std::string& szBuffer, std::vector<TextLine_t>& vecB
 ///////////////////////////////////////////////////////////////////////////
 char SyncText_VkToChar(int vk)
 {
-    char c = '\0';
+    char c         = '\0';
 
     bool bCapsLock = GetKeyState(VK_CAPITAL) & 1;
     bool bShift    = GetKeyState(VK_SHIFT)   & 0x8000;
@@ -944,8 +925,25 @@ void SyncText_CaptureKey(WPARAM wParam, std::string& szCmdBuffer)
     if(c == '\0')
         return;
 
-    if(c == KeyBind_StickyComma)
-        g_bStickyComma = !g_bStickyComma;
+    
+    switch(c)
+    {
+    case KeyBind_AlignComments:
+        g_bAlignComments = !g_bAlignComments;
+        break;
+
+    case KeyBind_StickyComma:
+        g_bStickyComma   = !g_bStickyComma;
+        break;
+
+    case KeyBind_DrawHelpInfo:
+        g_bDrawHelpInfo  = !g_bDrawHelpInfo;
+        g_bResizeWindow  = true;
+        break;
+
+    default: break;
+    }
+
 
     szCmdBuffer.push_back(c);
 }
@@ -1092,9 +1090,11 @@ void SyncText_UpdateCaretPosCountToken(std::vector<TextLine_t>& vecBuffer, const
 {
     for(TextLine_t& line : vecBuffer)
     {
-        if(line.m_vecTokens.size() == 0LLU)
+        if(line.m_vecTokens.empty() == true)
             continue;
 
+        if(line.m_bComment == true && g_bAlignComments == false)
+            continue;
 
         line.m_iCaretTokenIndex += cmd.m_bForward == true ? cmd.m_iMoveAmount : cmd.m_iMoveAmount * -1;
         line.m_iCaretTokenIndex  = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
@@ -1116,6 +1116,10 @@ void SyncText_UpdateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, const
     // NOTE : Don't use size_t here, m_iCaretTokenIndex can be negative and casting would cause underflow.
     for(TextLine_t& line : vecBuffer)
     {
+        if(line.m_bComment == true && g_bAlignComments == false)
+            continue;
+
+
         if(cmd.m_bForward == true)
         {
             for(int iTokenIndex = line.m_iCaretTokenIndex + 1LLU; iTokenIndex < static_cast<int>(line.m_vecTokens.size()); iTokenIndex++)
@@ -1132,7 +1136,6 @@ void SyncText_UpdateCaretPosFindSymbol(std::vector<TextLine_t>& vecBuffer, const
         }
         else 
         {
-            // Don't use 
             for(int iTokenIndex = line.m_iCaretTokenIndex - 1; iTokenIndex >= 0; iTokenIndex--)
             {
                 if(line.m_vecTokens[iTokenIndex].m_szToken.empty() == true)
@@ -1156,10 +1159,13 @@ void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
     int iTargetCaretIndex = -1;
 
 
-    // Finding largets caret pos.
+    // Finding target caret pos.
     for(TextLine_t& line : vecBuffer)
     {
         if(line.m_vecTokens.empty() == true)
+            continue;
+
+        if(line.m_iCaretTokenIndex < 0)
             continue;
 
         int iCaretIndex = SyncText_Clamp<int>(line.m_iCaretTokenIndex, 0, line.m_vecTokens.size() - 1LLU);
@@ -1183,6 +1189,9 @@ void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
         if(line.m_iCaretTokenIndex < 0)
             continue;
 
+        if(line.m_bComment == true && g_bAlignComments == false)
+            continue;
+
 
         int iOffset = -1;
         for(size_t iTokenIndex = 0LLU; iTokenIndex < line.m_vecTokens.size(); iTokenIndex++)
@@ -1195,8 +1204,8 @@ void SyncText_ApplyCmd(std::vector<TextLine_t>& vecBuffer)
             {
                 iOffset = iTargetCaretIndex - token.m_iAbsIndex;
 
-                // If "sticky comma" is enabled then pull along the one or 3 characters before it.
-                // 3 in case when the shit before this comma is a string in double or single quotes.
+                // If "sticky comma" is enabled then pull along the some tokens before it.
+                // 3 or more in case when the token before this comma is a string in double or single quotes.
                 if(token.m_szToken[0] == ',' && g_bStickyComma == true)
                 {
                     if(iTokenIndex > 0)
@@ -1267,4 +1276,39 @@ std::string SyncText_ContructStringFromBuffer(std::vector<TextLine_t>& vecBuffer
 
 
     return resultStream.str();
+}
+
+
+///////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////
+bool SyncText_IsLineComment(TextLine_t& line, const std::string& szComment)
+{
+    if(line.m_vecTokens.empty() == true)
+        return false;
+
+
+    int      iCharIterator  = 0;
+    int      iTokenIterator = 0;
+    Token_t* pActiveToken   = &line.m_vecTokens[iTokenIterator];
+
+    for(const char c : szComment)
+    {
+        if(iCharIterator >= pActiveToken->m_szToken.size())
+        {
+            // Does it has one more token?
+            if(iTokenIterator + 1 >= line.m_vecTokens.size())
+                return false;
+
+            iTokenIterator += 1;
+            pActiveToken    = &line.m_vecTokens[iTokenIterator];
+        }
+
+        if(c != pActiveToken->m_szToken[iCharIterator])
+            return false;
+
+        iCharIterator++;
+    }
+
+
+    return true;
 }
