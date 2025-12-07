@@ -25,7 +25,6 @@ Function definition ( same order as decleration. ).
 
 */
 
-#include <cstddef>
 #define WIN32_LEAN_AND_MEAN
 
 // Window's BS
@@ -35,6 +34,7 @@ Function definition ( same order as decleration. ).
 #include <cstdint>
 #include <WinUser.h>
 #include <winuser.h>
+#include <cstddef>
 
 // STL stuff...
 #include <vector>
@@ -142,7 +142,8 @@ enum KeyBinds_t : char
     KeyBind_CountTokensBackward = 'b',
     KeyBind_StickyComma         = 's',
     KeyBind_AlignComments       = 'c',
-    KeyBind_DrawHelpInfo        = 'h'
+    KeyBind_DrawHelpInfo        = 'h',
+    KeyBind_VimMode             = 'n'
 };
 ///////////////////////////////////////////////////////////////////////////
 
@@ -176,6 +177,7 @@ UserCmd_t                g_cmd;
 bool g_bStickyComma   = true;
 bool g_bAlignComments = false;
 bool g_bDrawHelpInfo  = true;
+bool g_bVimMode       = true;
 
 // Delimiters that are also tokens...
 std::unordered_set<char> m_setDelimiterTokens           = {'"', '\'', ',', ';', '+', '-', '=', '{', '}', '[', ']', '(', ')', '.'};
@@ -581,6 +583,8 @@ int SyncText_PaintWindow(HWND hwnd)
 
         vCursorPos.y += iLineHeight;
 
+
+        // Sticky Commas...
         SetTextColor(hdc, g_bStickyComma == true ? RGB(0, 255, 0) : RGB(255, 0, 0));
 
         debugInfoStream << "Sticky Comma   : " << (g_bStickyComma == true ? "[ Enabled ]" : "[ Disabled ]");
@@ -591,9 +595,23 @@ int SyncText_PaintWindow(HWND hwnd)
 
         vCursorPos.y += iLineHeight;
 
+
+        // Align Comments...
         SetTextColor(hdc, g_bAlignComments == true ? RGB(0, 255, 0) : RGB(255, 0, 0));
 
         debugInfoStream << "Align Comments : " << (g_bAlignComments == true ? "[ Enabled ]" : "[ Disabled ]");
+        TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
+        debugInfoStream.str(""); debugInfoStream.clear();
+
+        SetTextColor(hdc, g_textClr);
+
+        vCursorPos.y += iLineHeight;
+        
+
+        // Vim Mode...
+        SetTextColor(hdc, g_bVimMode == true ? RGB(0, 255, 0) : RGB(255, 0, 0));
+
+        debugInfoStream << "Vim Mode : " << (g_bVimMode == true ? "[ Enabled ]" : "[ Disabled ]");
         TextOutA(hdc, vCursorPos.x, vCursorPos.y, debugInfoStream.str().c_str(), debugInfoStream.str().size());
         debugInfoStream.str(""); debugInfoStream.clear();
 
@@ -641,13 +659,36 @@ void SyncText_StoreClipBoardText()
 
 
     // Copy...
-    keybd_event(VK_CONTROL, 0,               0, 0);
-    keybd_event(       'C', 0,               0, 0);
-    keybd_event(       'C', 0, KEYEVENTF_KEYUP, 0);
-    keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+    if(g_bVimMode == false)
+    {
+        keybd_event(VK_CONTROL, 0,               0, 0);
+        keybd_event(       'C', 0,               0, 0);
+        keybd_event(       'C', 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, 0);
+    }
+    else 
+    {
+        // Simualte ( "+y ) keystroke if Vim Mode is active.
+        keybd_event(VK_SHIFT,    0,               0, 0);
+        keybd_event(VK_OEM_7,    0,               0, 0);
+        keybd_event(VK_OEM_7,    0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_SHIFT,    0, KEYEVENTF_KEYUP, 0);
+
+        Sleep(10);
+
+        keybd_event(VK_SHIFT,    0,               0, 0);
+        keybd_event(VK_OEM_PLUS, 0,               0, 0);
+        keybd_event(VK_OEM_PLUS, 0, KEYEVENTF_KEYUP, 0);
+        keybd_event(VK_SHIFT,    0, KEYEVENTF_KEYUP, 0);
+
+        Sleep(10);
+
+        keybd_event('Y',         0,               0, 0);
+        keybd_event('Y',         0, KEYEVENTF_KEYUP, 0);
+    }
 
 
-    // Spin-locking till Ctrl+C operation is completed.
+    // Spin-locking till copy operation is completed.
     auto copyCheckStartTime  = std::chrono::high_resolution_clock::now();
     int  nChecks             = SYNCTEXT_MAX_CLIPBOARD_UDPATE_CHECKS;
     while(nChecks > 0)
@@ -938,6 +979,10 @@ void SyncText_CaptureKey(WPARAM wParam, std::string& szCmdBuffer)
     case KeyBind_DrawHelpInfo:
         g_bDrawHelpInfo  = !g_bDrawHelpInfo;
         g_bResizeWindow  = true;
+        break;
+
+    case KeyBind_VimMode:
+        g_bVimMode = !g_bVimMode;
         break;
 
     default: break;
